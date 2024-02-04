@@ -234,15 +234,15 @@ So the query for listing all `Cancelled` orders will be:
  - Based on the query plans, the `Subquery` solution is more efficient and use less JIT functions (10 vs 17)
 
 ### Optimization Suggestions
- - Indexing:
-   - Create indexes on:
+ - Indexing:  
+   Create indexes on:
      - `OrderStatus.status` 
      - `OrderStatus.created` 
      - `OrderStatus.order_id` (Django already done this behind the scene)   
      for faster filtering and joining.
-   - Denormalization: 
-     - Consider storing the latest status directly on the Order model for faster retrieval, 
-     especially if querying for the latest status is frequent.
-   - Caching
+ - Denormalization: 
+   - Consider storing the latest status directly on the Order model for faster retrieval, 
+   especially if querying for the latest status is frequent.
+ - Caching
 
 
