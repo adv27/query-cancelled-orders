@@ -83,7 +83,7 @@ Go take a coffee ☕, this might take a while.
  - My database contains around `1,200,000` Orders and  `2,700,000` OrderStatuses
 
 #### Simplest version
-Every `Cancelled` order will always has one `OrderStatus` with `status="Cancelled"`.  
+Every `Cancelled` order will always have one `OrderStatus` with `status="Cancelled"`.  
 So the query for listing all `Cancelled` orders will be:  
  - Django filter:
     ```python
@@ -101,13 +101,13 @@ So the query for listing all `Cancelled` orders will be:
     ```text
     709.75 ms
     ```
-But this answer seem fairly simple, I think the question should be `filter orders based on their latest status`
+But this answer seems fairly simple, I think the question should be `filter orders based on their latest status`
 
 #### `ROW_NUMBER()` version
-The intent is doing filter on the latest status only:
- - Number the rows in `OrderStatus` table so that the most recent status of `Order` get number **1** (after sort `DESC` created).  
- - Select that only most recent row.  
- - Join with the `Order` table to containing only the most recent `OrderStatus` matching.  
+The intent is to filter on the latest status only:
+ - Number the rows in `OrderStatus` table so that the most recent status of `Order` gets number **1** (after sorting `DESC` created).  
+ - Select only the most recent row.  
+ - Join with the `Order` table to contain only the most recent `OrderStatus` matching.  
 
 So the query for listing all `Cancelled` orders will be:  
  - Django filter:
@@ -230,8 +230,8 @@ So the query for listing all `Cancelled` orders will be:
     ```
 
 #### Conclusions:
- - The `Subquery` solution generate nicer SQL
- - Based on the query plans, the `Subquery` solution is more efficient and use less JIT functions (10 vs 17)
+ - The `Subquery` solution generates nicer SQL
+ - Based on the query plans, the `Subquery` solution is more efficient and uses less JIT functions (10 vs 17)
 
 ### Optimization Suggestions
  - Indexing:  
