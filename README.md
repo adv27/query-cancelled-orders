@@ -80,7 +80,7 @@ Go take a coffee ☕, this might take a while.
 ### Implement query
 
 #### Notes  
- - My database contains around `1,200,000` Order and  `2,700,000` OrderStatuses
+ - My database contains around `1,200,000` Orders and  `2,700,000` OrderStatuses
 
 #### Simplest version
 Every `Cancelled` order will always has one `OrderStatus` with `status="Cancelled"`.  
@@ -90,7 +90,7 @@ So the query for listing all `Cancelled` orders will be:
     cancelled_orders = Order.objects.filter(statuses__status=OrderStatus.Status.CANCELLED)
     ```
  - Executed SQL:
-    ```postgresql
+    ```sql
     SELECT "order_order"."id"
       FROM "order_order"
      INNER JOIN "order_orderstatus"
@@ -128,7 +128,7 @@ So the query for listing all `Cancelled` orders will be:
     )
     ```
  - Executed SQL:
-    ```postgresql
+    ```sql
     SELECT "order_order"."id"
       FROM "order_order"
      WHERE (
@@ -194,7 +194,7 @@ So the query for listing all `Cancelled` orders will be:
     )
     ```
  - Executed SQL:
-    ```postgresql
+    ```sql
    SELECT "order_order"."id"
      FROM "order_order"
     WHERE (
@@ -229,11 +229,20 @@ So the query for listing all `Cancelled` orders will be:
    Execution Time: 2979.159 ms
     ```
 
+#### Conclusions:
+ - The `Subquery` solution generate nicer SQL
+ - Based on the query plans, the `Subquery` solution is more efficient and use less JIT functions (10 vs 17)
 
-
-
-
-
-
+### Optimization Suggestions
+ - Indexing:
+   - Create indexes on:
+     - `OrderStatus.status` 
+     - `OrderStatus.created` 
+     - `OrderStatus.order_id` (Django already done this behind the scene)   
+     for faster filtering and joining.
+   - Denormalization: 
+     - Consider storing the latest status directly on the Order model for faster retrieval, 
+     especially if querying for the latest status is frequent.
+   - Caching
 
 
