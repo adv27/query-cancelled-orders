@@ -238,11 +238,75 @@ So the query for listing all `Cancelled` orders will be:
    Create indexes on:
      - `OrderStatus.status` 
      - `OrderStatus.created` 
-     - `OrderStatus.order_id` (Django already done this behind the scene)   
+     - `OrderStatus.order_id` (Django already done this behind the scene)  
      for faster filtering and joining.
  - Denormalization: 
-   - Consider storing the latest status directly on the Order model for faster retrieval, 
+   - Consider storing the latest status directly on the `Order` model for faster retrieval, 
    especially if querying for the latest status is frequent.
  - Caching
 
+### Schema changes examples
+- Storing the latest status directly on the `Order` model
+    ```python
+    class Order(models.Model):
+        status = models.CharField(max_length=12)
+    ```   
 
+    ```python
+    # order/signals.py
+    
+    @receiver(post_save, sender=OrderStatus)
+    def update_order_status(sender, instance, created, **kwargs):
+        if created:
+            order = instance.order
+            order.status = instance.status
+            order.save(update_fields=['status'])
+    ```
+
+- Same as above but this time using `JSONField`
+    ```python
+    from typing import Literal
+    
+    from django.db import models
+    from django.utils.timezone import now
+    
+    
+    class Order(models.Model):
+        status_history = models.JSONField(null=True, default=list)
+        """
+        [
+            {
+                "status": "Pending",
+                "time": "2024-02-04T10:47:46.177209+00:00"
+            },
+            {
+                "status": "Complete",
+                "time": "2024-02-04T10:47:48.354750+00:00"
+            },
+            {
+                "status": "Cancelled",
+                "time": "2024-02-04T10:47:50.602173+00:00"
+            }
+        ]
+        """
+    
+        objects = models.Manager()
+    
+        def update_status(self, status: Literal["Pending", "Complete", "Cancelled"]):
+            status_history = self.status_history or []
+            status_history.append({
+                "status": status,
+                "time": now().isoformat(),
+            })
+    
+            self.status_history = status_history
+            self.save()
+    
+            return self
+    ```
+    
+    List all `Cancelled` orders by:
+    ```python
+    # Since status_history__-1__status is not a valid kwargs
+    cancelled_orders = Order.objects.filter(**{"status_history__-1__status": "Cancelled"})
+    ```
