@@ -310,3 +310,6 @@ So the query for listing all `Cancelled` orders will be:
     # Since status_history__-1__status is not a valid kwargs
     cancelled_orders = Order.objects.filter(**{"status_history__-1__status": "Cancelled"})
     ```
+    ```sql
+    SELECT "order_order"."id", "order_order"."status_history" FROM "order_order" WHERE ("order_order"."status_history" #> ['-1', 'status']) = Jsonb('Cancelled')
+    ```
