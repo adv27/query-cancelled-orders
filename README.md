@@ -83,7 +83,7 @@ Go take a coffee ☕, this might take a while.
  - My database contains around `1,200,000` Orders and  `2,700,000` OrderStatuses
 
 #### Simplest version
-Every `Cancelled` order will always have one `OrderStatus` with `status="Cancelled"`.  
+Since no status can come after `Cancelled`, so it will always be the last one in list of `OrderStatus` related objects.
 So the query for listing all `Cancelled` orders will be:  
  - Django filter:
     ```python
@@ -101,137 +101,57 @@ So the query for listing all `Cancelled` orders will be:
     ```text
     709.75 ms
     ```
-But this answer seems fairly simple, I think the question should be `filter orders based on their latest status`
-
-#### `Subquery` with `ROW_NUMBER()` version
-The intent is to filter on the latest status only:
- - Number the rows in `OrderStatus` table so that the most recent status of `Order` gets number **1** (after sorting `DESC` created).  
- - Select only the most recent row.  
- - Join with the `Order` table to contain only the most recent `OrderStatus` matching.  
-
-So the query for listing all `Cancelled` orders will be:  
- - Django filter:
-    ```python
-    from django.db.models import F
-    from django.db.models import Subquery, OuterRef
-    from django.db.models.expressions import Window
-    from django.db.models.functions import RowNumber
-   
-    latest_status = OrderStatus.objects.annotate(
-        row_number=Window(expression=RowNumber(), partition_by=[F("order")], order_by=[F("created").desc()])
-    ).filter(
-        row_number=1,
-        order_id=OuterRef("pk"),
-    )
-    cancelled_orders = Order.objects.alias(latest_status=Subquery(latest_status.values("status")[:1])).filter(
-        latest_status=OrderStatus.Status.CANCELLED
-    )
-    ```
- - Executed SQL:
-    ```sql
-    SELECT "order_order"."id"
-      FROM "order_order"
-     WHERE (
-            SELECT "col1"
-              FROM (
-                    SELECT *
-                      FROM (
-                            SELECT U0."status" AS "col1",
-                                   ROW_NUMBER() OVER (PARTITION BY U0."order_id" ORDER BY U0."created" DESC) AS "qual0"
-                              FROM "order_orderstatus" U0
-                             WHERE U0."order_id" = ("order_order"."id")
-                           ) "qualify"
-                     WHERE "qual0" = 'Int4(1)'
-                   ) "qualify_mask"
-             LIMIT 1
-           ) = '''Cancelled'''
-    ```
- - Time:
+ - Query plan
     ```text
-    3880.65 ms
-    ```
- - Query plan:
-    ```text
-    Seq Scan on order_order  (cost=0.00..10056201.63 rows=5876 width=8) (actual time=117.814..4037.723 rows=770965 loops=1)
-      Filter: (((SubPlan 1))::text = 'Cancelled'::text)
-      Rows Removed by Filter: 404247
-      SubPlan 1
-        ->  Limit  (cost=8.47..8.54 rows=1 width=8) (actual time=0.003..0.003 rows=1 loops=1175212)
-              ->  Subquery Scan on qualify  (cost=8.47..8.54 rows=1 width=8) (actual time=0.003..0.003 rows=1 loops=1175212)
-                    Filter: (qualify.qual0 = 1)
-                    ->  WindowAgg  (cost=8.47..8.52 rows=2 width=32) (actual time=0.003..0.003 rows=1 loops=1175212)
-                          Run Condition: (row_number() OVER (?) <= 1)
-                          ->  Sort  (cost=8.47..8.48 rows=2 width=24) (actual time=0.002..0.002 rows=2 loops=1175212)
-                                Sort Key: u0.created DESC
-                                Sort Method: quicksort  Memory: 25kB
-                                ->  Index Scan using order_orderstatus_order_id_d13e4d24 on order_orderstatus u0  (cost=0.43..8.46 rows=2 width=24) (actual time=0.001..0.001 rows=2 loops=1175212)
-                                      Index Cond: (order_id = order_order.id)
-    Planning Time: 0.374 ms
+    Hash Join  (cost=36234.27..104050.16 rows=771854 width=8) (actual time=227.303..744.650 rows=770966 loops=1)
+      Hash Cond: (order_orderstatus.order_id = order_order.id)
+      ->  Seq Scan on order_orderstatus  (cost=0.00..55166.76 rows=771854 width=8) (actual time=4.215..218.972 rows=770966 loops=1)
+            Filter: ((status)::text = 'Cancelled'::text)
+            Rows Removed by Filter: 1928455
+      ->  Hash  (cost=16953.12..16953.12 rows=1175212 width=8) (actual time=222.500..222.501 rows=1175212 loops=1)
+            Buckets: 262144  Batches: 8  Memory Usage: 7796kB
+            ->  Seq Scan on order_order  (cost=0.00..16953.12 rows=1175212 width=8) (actual time=0.034..77.977 rows=1175212 loops=1)
+    Planning Time: 0.389 ms
     JIT:
-      Functions: 17
-      Options: Inlining true, Optimization true, Expressions true, Deforming true
-      Timing: Generation 0.587 ms, Inlining 46.927 ms, Optimization 39.429 ms, Emission 31.280 ms, Total 118.223 ms
-    Execution Time: 4082.676 ms
-    ```
+      Functions: 12
+      Options: Inlining false, Optimization false, Expressions true, Deforming true
+      Timing: Generation 0.386 ms, Inlining 0.000 ms, Optimization 0.188 ms, Emission 4.014 ms, Total 4.588 ms
+    Execution Time: 777.449 ms
+   ```
 
-#### Nested sub-query version
-Using `Subquery` then get the only **first** row  
+Lets add index on `OrderStatus.status`
+```python
+class OrderStatus(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "Pending"
+        COMPLETE = "Complete"
+        CANCELLED = "Cancelled"
 
-So the query for listing all `Cancelled` orders will be:  
- - Django filter:
-    ```python
-    from django.db.models import Subquery, OuterRef
-   
-    latest_status = OrderStatus.objects.filter(
-        order_id=OuterRef("pk")
-    ).order_by(
-        "-created"
-    )
-    cancelled_orders = Order.objects.alias(
-        latest_status=Subquery(latest_status.values("status")[:1])
-    ).filter(
-        latest_status=OrderStatus.Status.CANCELLED
-    )
-    ```
- - Executed SQL:
-    ```sql
-   SELECT "order_order"."id"
-     FROM "order_order"
-    WHERE (
-           SELECT U0."status"
-             FROM "order_orderstatus" U0
-            WHERE U0."order_id" = ("order_order"."id")
-            ORDER BY U0."created" DESC
-            LIMIT 1
-          ) = '''Cancelled'''
-    ```
- - Time:
-    ```text
-    3185.36 ms 
-    ```
- - Query plan:
-    ```text
-   Seq Scan on order_order  (cost=0.00..9982750.88 rows=5876 width=8) (actual time=68.345..2945.670 rows=770965 loops=1)
-     Filter: (((SubPlan 1))::text = 'Cancelled'::text)
-     Rows Removed by Filter: 404247
-     SubPlan 1
-       ->  Limit  (cost=8.47..8.48 rows=1 width=16) (actual time=0.002..0.002 rows=1 loops=1175212)
-             ->  Sort  (cost=8.47..8.48 rows=2 width=16) (actual time=0.002..0.002 rows=1 loops=1175212)
-                   Sort Key: u0.created DESC
-                   Sort Method: quicksort  Memory: 25kB
-                   ->  Index Scan using order_orderstatus_order_id_d13e4d24 on order_orderstatus u0  (cost=0.43..8.46 rows=2 width=16) (actual time=0.001..0.001 rows=2 loops=1175212)
-                         Index Cond: (order_id = order_order.id)
-   Planning Time: 0.369 ms
-   JIT:
-     Functions: 10
-     Options: Inlining true, Optimization true, Expressions true, Deforming true
-     Timing: Generation 0.290 ms, Inlining 44.979 ms, Optimization 13.651 ms, Emission 9.584 ms, Total 68.504 ms
-   Execution Time: 2979.159 ms
-    ```
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="statuses")
+    status = models.CharField(choices=Status.choices)
+    created = models.DateTimeField(auto_now_add=True)
 
-#### Conclusions:
- - The `Subquery` solution generates nicer SQL
- - Based on the query plans, the `Subquery` solution is more efficient and uses less JIT functions (10 vs 17)
+    class Meta:
+        indexes = [models.Index(fields=["status"])]
+```
+After the migration for new index added, the query plan will be:
+```text
+Hash Join  (cost=44860.57..88581.87 rows=771854 width=8) (actual time=251.315..719.570 rows=770966 loops=1)
+  Hash Cond: (order_orderstatus.order_id = order_order.id)
+  ->  Bitmap Heap Scan on order_orderstatus  (cost=8626.30..39698.47 rows=771854 width=8) (actual time=18.748..179.598 rows=770966 loops=1)
+        Recheck Cond: ((status)::text = 'Cancelled'::text)
+        Heap Blocks: exact=21424
+        ->  Bitmap Index Scan on order_order_status_288d9a_idx  (cost=0.00..8433.33 rows=771854 width=0) (actual time=16.099..16.100 rows=770966 loops=1)
+              Index Cond: ((status)::text = 'Cancelled'::text)
+  ->  Hash  (cost=16953.12..16953.12 rows=1175212 width=8) (actual time=231.947..231.947 rows=1175212 loops=1)
+        Buckets: 262144  Batches: 8  Memory Usage: 7796kB
+        ->  Seq Scan on order_order  (cost=0.00..16953.12 rows=1175212 width=8) (actual time=0.013..83.136 rows=1175212 loops=1)
+Planning Time: 0.466 ms
+Execution Time: 740.313 ms
+```
+We can see `Seq Scan on order_orderstatus` changed into `Bitmap Heap Scan on order_orderstatus` since now we're using index for filtering,
+it means that only some pages need to be read rather than all of them.
+
 
 ### Optimization Suggestions
  - Indexing:  
@@ -250,6 +170,9 @@ So the query for listing all `Cancelled` orders will be:
     ```python
     class Order(models.Model):
         status = models.CharField(max_length=12)
+
+        class Meta:
+            indexes = [models.Index(fields=["status"])]
     ```   
 
     ```python
@@ -261,55 +184,4 @@ So the query for listing all `Cancelled` orders will be:
             order = instance.order
             order.status = instance.status
             order.save(update_fields=['status'])
-    ```
-
-- Embedded whole history into `JSONField`
-    ```python
-    from typing import Literal
-    
-    from django.db import models
-    from django.utils.timezone import now
-    
-    
-    class Order(models.Model):
-        status_history = models.JSONField(null=True, default=list)
-        """
-        [
-            {
-                "status": "Pending",
-                "time": "2024-02-04T10:47:46.177209+00:00"
-            },
-            {
-                "status": "Complete",
-                "time": "2024-02-04T10:47:48.354750+00:00"
-            },
-            {
-                "status": "Cancelled",
-                "time": "2024-02-04T10:47:50.602173+00:00"
-            }
-        ]
-        """
-    
-        objects = models.Manager()
-    
-        def update_status(self, status: Literal["Pending", "Complete", "Cancelled"]):
-            status_history = self.status_history or []
-            status_history.append({
-                "status": status,
-                "time": now().isoformat(),
-            })
-    
-            self.status_history = status_history
-            self.save()
-    
-            return self
-    ```
-    
-    List all `Cancelled` orders by:
-    ```python
-    # Since status_history__-1__status is not a valid kwargs
-    cancelled_orders = Order.objects.filter(**{"status_history__-1__status": "Cancelled"})
-    ```
-    ```sql
-    SELECT "order_order"."id", "order_order"."status_history" FROM "order_order" WHERE ("order_order"."status_history" #> ['-1', 'status']) = Jsonb('Cancelled')
     ```
