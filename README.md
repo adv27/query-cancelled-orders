@@ -103,7 +103,7 @@ So the query for listing all `Cancelled` orders will be:
     ```
 But this answer seems fairly simple, I think the question should be `filter orders based on their latest status`
 
-#### `ROW_NUMBER()` version
+#### `Subquery` with `ROW_NUMBER()` version
 The intent is to filter on the latest status only:
  - Number the rows in `OrderStatus` table so that the most recent status of `Order` gets number **1** (after sorting `DESC` created).  
  - Select only the most recent row.  
@@ -263,7 +263,7 @@ So the query for listing all `Cancelled` orders will be:
             order.save(update_fields=['status'])
     ```
 
-- Same as above but this time using `JSONField`
+- Embedded whole history into `JSONField`
     ```python
     from typing import Literal
     
