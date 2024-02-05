@@ -82,7 +82,7 @@ Go take a coffee ☕, this might take a while.
 #### Notes  
  - My database contains around `1,200,000` Orders and  `2,700,000` OrderStatuses
 
-#### Simplest version
+#### Solution
 Since no status can come after `Cancelled`, so it will always be the last one in list of `OrderStatus` related objects.
 So the query for listing all `Cancelled` orders will be:  
  - Django filter:
